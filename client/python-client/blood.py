@@ -16,8 +16,8 @@ while 1:
     payload = []
 
     if i == num_leds1:
-        brightness = 255
-        speed = brightness / 10000 
+        brightness = random.randint(50, 255)
+        speed = brightness / 100000 
  
     for x in range(num_leds1):
         if x == i:
@@ -25,7 +25,7 @@ while 1:
             
             payload.append({"index": x, "r": r, "g": 0, "b": 0})
         elif x == i + 1:
-            payload.append({"index": x, "r": 5, "g": 0, "b": 0})
+            payload.append({"index": x, "r": 20, "g": 0, "b": 0})
             
     for x in range(num_leds2):
         if x == j:
