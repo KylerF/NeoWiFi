@@ -13,10 +13,10 @@
 // NeoPixel strip settings
 #define BRIGHTNESS    100
 #define NEO_PIN       14
-#define NEO_LED_COUNT 29
+#define NEO_LED_COUNT 248
 
 // OTA update settings
-#define OTA_HOSTNAME "NeoWIFI"
+#define OTA_HOSTNAME "NeoWiFi"
 #define OTA_PASS     "somecode4u"
 
 #endif

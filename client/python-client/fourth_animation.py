@@ -3,7 +3,7 @@ import requests
 import random
 import time
 
-esp_url = 'http://192.168.1.60/write'
+esp_url = 'http://192.168.1.27/write'
 num_leds = 29
 
 while 1:

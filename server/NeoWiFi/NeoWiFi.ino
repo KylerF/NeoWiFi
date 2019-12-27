@@ -13,10 +13,11 @@
 Adafruit_NeoPixel strip = Adafruit_NeoPixel (
   NEO_LED_COUNT, 
   NEO_PIN, 
-  NEO_RGBW + NEO_KHZ800
+  NEO_GRB + NEO_KHZ800
 );
 
-int power_on = 0;
+// Power flag
+int powerOn = 0;
 
 // Array containing current color of all LEDs
 uint32_t ledStates [NEO_LED_COUNT];
@@ -24,7 +25,7 @@ uint32_t ledStates [NEO_LED_COUNT];
 // Whether an animation is playing
 int animationPlaying = 0;
 
-// Pointer to the currently playing preset animation
+// Pointer to the currently playing preset animation handler function
 void (*currentPresetHandler)();
 
 ESP8266WebServer    server(SERVER_PORT);
@@ -34,8 +35,10 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(115200);
   Serial.println("Booting");
-  
+
+  // Blocks until connected to a network
   connectWifi();
+  
   startWebServer();
   Serial.println("HTTP server started");
 
@@ -47,7 +50,7 @@ void setup() {
   memset ( ledStates, 0, sizeof(ledStates) );
   strip.setBrightness(BRIGHTNESS);
   strip.begin();
-  fullWhite();
+  clearStrip();
   setLedStates();
 }
 
@@ -55,38 +58,39 @@ void loop() {
   server.handleClient();
   ArduinoOTA.handle();
 
-  // Update current animation
-  if(animationPlaying) {
-    cradle();
-  }
+  // Update current animation if running
+  playAnimation();
 }
 
 // Endpoint table lookup entry
 struct endpoint_table_entry {
-  const char * endpoint;         // endpoint string
-  HTTPMethod   allowed_method;   // allowed method
-  void (*handler)();             // handler function
+  const char * endpoint;       // endpoint string
+  HTTPMethod   allowed_method; // allowed method
+  void (*handler)();           // handler function
 };
 
 // Preset animation table lookup entry
 struct animation_table_entry {
-  int id;             // id for the animation
-  const char * name;  // name for the animation
-  void (*handler)();  // handler function
+  int id;            // id for the animation
+  const char * name; // name for the animation
+  void (*handler)(); // handler function
 };
 
 // Lookup table to map each endpoint to its 
 // allowed method and handler function
 static struct endpoint_table_entry endpoint_table[] = 
 { 
-  { "/",         HTTP_GET,  &handleRoot    },
-  {"/monitor",   HTTP_GET,  &handleMonitor },
-  { "/on",       HTTP_GET,  &allOn         }, 
-  { "/off",      HTTP_GET,  &allOff        }, 
-  { "/write",    HTTP_POST, &setColor      }, 
-  { "/preset",   HTTP_POST, &selectPreset  }, 
-  { "/next",     HTTP_GET,  &nextPreset    }, 
-  { "/previous", HTTP_GET,  &lastPreset    }, 
+  { "/",         HTTP_GET,  &handleRoot     },
+  { "/monitor",   HTTP_GET,  &handleMonitor },
+  { "/reset",     HTTP_GET,  &handleReset   },
+  { "/on",       HTTP_GET,  &allOn          }, 
+  { "/off",      HTTP_GET,  &allOff         }, 
+  { "/write",    HTTP_POST, &setColor       }, 
+  { "/preset",   HTTP_POST, &selectPreset   }, 
+  { "/next",     HTTP_GET,  &nextPreset     }, 
+  { "/previous", HTTP_GET,  &lastPreset     }, 
+  { "/start",    HTTP_GET,  &startPreset    }, 
+  { "/stop",     HTTP_GET,  &stopPreset     },
   { NULL }
 };
 
@@ -95,7 +99,7 @@ static struct endpoint_table_entry endpoint_table[] =
 // the animation is enabled.
 static struct animation_table_entry animation_table[] = 
 { 
-  { 0, "Newton's Cradle", &cradle },
+  { 1, "Fucking Slayer", &bleed },
   { NULL }
 };
 
@@ -110,12 +114,18 @@ void startWebServer() {
 }
 
 /*  *  *  *  *  *  *  *  * API Endpoint Handlers *  *  *  *  *  *  *  */
-// Shows a serial monitor-type console
+// TODO: Shows a serial monitor-style console
 void handleMonitor() {
   server.send(200, "text/plain", "NeoWiFi Status Monitor");
 }
 
-// Returns the current state of all LEDs
+// Reset the board
+void handleReset() {
+  ESP.restart();
+  server.send(200, "text/plain", "Restarting");
+}
+
+// Returns some text (for testing)
 void handleRoot() {
   server.send(200, "text/plain", "NeoWiFi Home");
 }
@@ -126,13 +136,14 @@ void allOn() {
     strip.setPixelColor(i, ledStates[i]);
 
   strip.show();
-  server.send(200, "text/plain", "");
+  server.send(200, "text/plain", "On");
 }
 
 // Saves LED state and sets all to 0
 void allOff() {  
   clearStrip();
-  server.send(200, "text/plain", "");
+  animationPlaying = 0;
+  server.send(200, "text/plain", "Off");
 }
 
 // Sets the color of one or more LEDs
@@ -145,20 +156,20 @@ void setColor() {
     JsonVariant jsonR = line.getMember("r");
     JsonVariant jsonG = line.getMember("g");
     JsonVariant jsonB = line.getMember("b");
-    JsonVariant jsonW = line.getMember("w");
+    //JsonVariant jsonW = line.getMember("w");
 
     int ledIndex = jsonLedIndex.as<int>();
     int r = jsonR.as<int>();
     int g = jsonG.as<int>();
     int b = jsonB.as<int>();
-    int w = jsonW.as<int>();
+    //int w = jsonW.as<int>();
   
-    strip.setPixelColor(ledIndex, strip.Color(g, r, b, w));
+    strip.setPixelColor(ledIndex, strip.Color(r, g, b));
   }
   
   strip.show();
   
-  server.send(200, "text/plain", "");
+  server.send(200, "text/plain", "Colors set");
 }
 
 // Starts a preset animation by ID
@@ -168,22 +179,25 @@ void selectPreset() {
 
   // Look up the selection
   struct animation_table_entry *p_entry = animation_table;
-  
-  if(presetID == 0) {
-    // Valid animation
-    clearStrip();
-    currentPresetHandler = p_entry -> handler;
-    animationPlaying = 1;
-    
-    server.send(
-      200, 
-      "text/plain", 
-      "Playing animation " + String(animationPlaying) + ": " + p_entry -> name
-    );
-  } else {
-    // Invalid animation ID received
-    server.send(400, "text/plain", "Invalid animation ID: " + String(presetID));
+  for ( ; p_entry -> id != NULL ; p_entry++ ) {
+    if ( presetID == p_entry -> id ) {
+      // Valid animation
+      clearStrip();
+      currentPresetHandler = p_entry -> handler;
+      animationPlaying = 1;
+      
+      server.send(
+        200, 
+        "text/plain", 
+        "Playing animation " + String(animationPlaying) + ": " + p_entry -> name
+      );
+
+      return;
+    }
   }
+
+  // Invalid animation ID received
+  server.send(400, "text/plain", "Invalid animation ID: " + String(presetID));
 }
 
 void nextPreset() {
@@ -192,6 +206,16 @@ void nextPreset() {
 
 void lastPreset() {
   server.send(200, "text/plain", "");
+}
+
+void startPreset() {
+  animationPlaying = 1;
+  server.send(200, "text/plain", "Start");
+}
+
+void stopPreset() {
+  animationPlaying = 0;
+  server.send(200, "text/plain", "Stop");
 }
 
 // Returns a 404 "not found" error to the client
@@ -231,35 +255,52 @@ void handleWrongMethod() {
 /*  *  *  *  *  *  *  *  * API Endpoint Handlers *  *  *  *  *  *  *  */
 
 
-
 /*  *  *  *  *  *  *  *  * Preset Animations *  *  *  *  *  *  *  */
-void cradle() {
-  // Save the position of the moving ball.
-  // Starts at the right-most edge of the strip.
-  static int movingBall = 0;
-
-  // Speed of the ball (pixels per second)
-  int ballSpeed = 4;
-
-  // Need to subtract a ball if the total number of 
-  // pixels is even
-  int offset = 0;
-  if(NEO_LED_COUNT % 2 == 0)
-    offset = 1;
-
-  // Number of balls in the cradle
-  int numBalls = (NEO_LED_COUNT / 2) - offset;
-  
-  // Light up pixels in the center
-  int center = (NEO_LED_COUNT / 2) - (numBalls / 2);
-
-  for(int i = 0; i < numBalls - 1; i++){
-    strip.setPixelColor(center + i, strip.Color(0, 0, 0, 255));
+// Call the current animation handler, if it should be playing
+void playAnimation() {
+  if (animationPlaying) {
+    currentPresetHandler();
   }
+}
 
-  // Put the moving ball in position
-  strip.setPixelColor(movingBall, strip.Color(0, 0, 0, 255));
-  strip.show();
+// Slayer bleeding Christmas tree handler
+void bleed() {
+  // Length of first strip, before separation
+  static const int strip1Length = 144;
+
+  // Starting index for each strip
+  static int strip1Index = strip1Length;
+  static int strip2Index = strip1Length + 1;
+
+  // Time to wait between steps
+  static const int delayMillis = 10;
+  static unsigned long lastMillis;
+
+  // Check the time
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastMillis >= delayMillis) {
+    // Update the pixel states
+    strip.setPixelColor(strip1Index, strip.Color(255, 0, 0) );
+    strip.setPixelColor((strip1Index + 1) % strip1Length, strip.Color(5, 0, 0) );
+    strip.setPixelColor((strip1Index + 40) % strip1Length, strip.Color(0, 0, 0));
+    
+    strip.setPixelColor(strip2Index, strip.Color(255, 0, 0) );
+    strip.setPixelColor(strip2Index - 1, strip.Color(5, 0, 0) );
+    strip.setPixelColor((strip2Index - 20) % NEO_LED_COUNT, strip.Color(0, 0, 0));
+    
+
+    // Update the indices
+    strip1Index--;
+    if (strip1Index < 0)
+      strip1Index = strip1Length;
+
+    strip2Index++;
+    if (strip2Index > NEO_LED_COUNT)
+      strip2Index = strip1Length + 1;
+    
+    strip.show();
+    lastMillis = currentMillis;
+  }
 }
 
 /*  *  *  *  *  *  *  *  * Preset Animations *  *  *  *  *  *  *  */
@@ -272,18 +313,18 @@ void setLedStates() {
 // Turn all pixels white
 void fullWhite() {
   for(uint16_t i=0; i<strip.numPixels(); i++)
-    strip.setPixelColor(i, strip.Color(0,0,0, 255 ) );
+    strip.setPixelColor(i, strip.Color(255, 255, 255) );
   
   strip.show();
 }
 
 // Turn all pixels off
 void clearStrip() {
- // Save current color of all LEDs
+  // Save current color of all LEDs
   setLedStates();
   
   for(uint16_t i = 0; i < strip.numPixels(); i++)
-    strip.setPixelColor(i, strip.Color(0, 0, 0, 0) );
+    strip.setPixelColor(i, strip.Color(0, 0, 0) );
 
   strip.show(); 
 }
@@ -319,9 +360,10 @@ void connectWifi() {
   // Attempt connection. Blocks until successful.
   WiFi.hostname(DHCP_HOSTNAME);
   WiFiManager wifiManager;
-  wifiManager.autoConnect();
+  wifiManager.autoConnect(DHCP_HOSTNAME);
 }
 
+// Start the OTA update server
 void startOTA() {
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASS);

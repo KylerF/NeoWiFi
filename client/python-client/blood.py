@@ -4,7 +4,7 @@ import random
 import time
 import sys
 
-esp_url = 'http://192.168.1.3/write'
+esp_url = 'http://192.168.1.110/write'
 
 num_leds1 = 144
 num_leds2 = 103

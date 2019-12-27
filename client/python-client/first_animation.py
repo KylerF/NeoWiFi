@@ -3,8 +3,8 @@ import requests
 import random
 import time
 
-esp_url = 'http://192.168.1.60/write'
-num_leds = 29
+esp_url = 'http://192.168.1.3/write'
+num_leds = 256
 i = 0
 
 while 1:
@@ -16,9 +16,9 @@ while 1:
             g = random.randint(0,255)
             b = random.randint(0,255)
             
-            payload.append({"index": x, "r": r, "g": g, "b": b, "w": 0})
+            payload.append({"index": x, "r": r, "g": g, "b": b})
         else:
-            payload.append({"index": x, "r": 0, "g": 0, "b": 0, "w": 0})
+            payload.append({"index": x, "r": 0, "g": 0, "b": 0})
     
     r = requests.post(esp_url, json=payload)
     i = (i + 1) % num_leds

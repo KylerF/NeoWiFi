@@ -132,7 +132,7 @@ trait AnimationHandler {
 // Run a simple animation to show off the client
 fn main() {
     let pixel_count = 29;
-    let host = "192.168.1.60".to_owned();
+    let host = "192.168.1.27".to_owned();
 
     let mut strip = NeoWiFi::new(pixel_count, host);
     let mut rng = rand::thread_rng();
