@@ -118,7 +118,7 @@ class NeoWifiStrip:
                 payload.append(pixel.to_json())
                 pixel.needs_update = False
 
-        # Split up the payload if needed. If the payload size is less than 40,
+        # Split up the payload if needed. If the payload size is less than the maximum body size,
         # chunkify will return the original payload.
         for chunk in list(self.__chunkify(payload, self.max_request_size)):
             self.__send_post_request(url, chunk, self.timeout)
@@ -127,7 +127,7 @@ class NeoWifiStrip:
         """
         Start playing a preset animation
 
-        :param id: ID for the preset animation
+        :param animation_id: ID for the preset animation
         """
         url = "{0}/preset".format(self.base_url)
         payload = {
@@ -252,7 +252,7 @@ class Pixel:
 
     def to_json(self):
         """
-        Convert this pixel to a dictionary, for sending to the server
+        Convert the pixel to a dictionary, which is sent to the server as JSON
 
         :return: Dictionary containing the pixel data
         """
@@ -263,13 +263,12 @@ class PixelOutOfRangeException(Exception):
     """
     Exception raised for attempting to access an out-of-range pixel
     """
-
     def __init__(self, count):
         self.count = count
 
         # Check for 0 count. May just need to call get_pixel_count.
         if self.count == 0:
-            self.message = "{0} -> Pixel out of range. Did you call get_pixel_count?".format(self.count)
+            self.message = "{0} -> Pixel out of range. Did you call get_pixel_count()?".format(self.count)
         else:
             self.message = "{0} -> Pixel out of range".format(self.count)
 
@@ -303,8 +302,8 @@ class EndpointNotFoundException(Exception):
     Exception raised when the server cannot be found (404)
     """
     def __init__(self, endpoint):
-        self.message = "{0} -> The endpoint does not exist. The NeoWiFi server may be an older firmware version that " \
-                       "does not support this.".format(endpoint)
+        self.message = "{0} -> The endpoint does not exist. The NeoWiFi server may be running an older firmware " \
+                       "version that does not support this.".format(endpoint)
 
         super().__init__(self.message)
 
