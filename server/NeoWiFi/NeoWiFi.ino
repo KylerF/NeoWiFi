@@ -1,29 +1,28 @@
-#include <Adafruit_NeoPixel.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
-#include <DNSServer.h>
-#include <ESP8266WiFi.h>
-#include <WiFiManager.h>
-#include <WiFiClient.h>
-#include <ArduinoOTA.h>
-#include <WiFiUdp.h>
-#include <ArduinoJson.h>
+/*
+ * NeoWiFi implementation for the ESP8266
+ * 
+ * The API allows for setting each pixel to a RGB color over WiFi, 
+ * and for running preset animations.
+ * 
+ * Configuration parameters are set in config.h
+ */
 #include "config.h"
 
+// Create a NeoPixel object
 Adafruit_NeoPixel strip = Adafruit_NeoPixel (
   NEO_LED_COUNT, 
   NEO_PIN, 
-  NEO_GRB + NEO_KHZ800
+  NEO_COLOR_ORDER + NEO_KHZ800
 );
 
 // Power flag
 int powerOn = 0;
 
-// Array containing current color of all LEDs
-uint32_t ledStates [NEO_LED_COUNT];
-
 // Whether an animation is playing
 int animationPlaying = 0;
+
+// Array containing current color of all LEDs
+uint32_t ledStates [NEO_LED_COUNT];
 
 // Pointer to the currently playing preset animation handler function
 void (*currentPresetHandler)();
@@ -36,6 +35,12 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Booting");
 
+  strip.setBrightness(BRIGHTNESS);
+  strip.begin();
+
+  fullWhite();
+  setLedStates();
+
   // Blocks until connected to a network
   connectWifi();
   
@@ -46,12 +51,6 @@ void setup() {
   Serial.println("Ready");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-
-  memset ( ledStates, 0, sizeof(ledStates) );
-  strip.setBrightness(BRIGHTNESS);
-  strip.begin();
-  clearStrip();
-  setLedStates();
 }
 
 void loop() {
@@ -80,17 +79,18 @@ struct animation_table_entry {
 // allowed method and handler function
 static struct endpoint_table_entry endpoint_table[] = 
 { 
-  { "/",         HTTP_GET,  &handleRoot     },
-  { "/monitor",   HTTP_GET,  &handleMonitor },
-  { "/reset",     HTTP_GET,  &handleReset   },
-  { "/on",       HTTP_GET,  &allOn          }, 
-  { "/off",      HTTP_GET,  &allOff         }, 
-  { "/write",    HTTP_POST, &setColor       }, 
-  { "/preset",   HTTP_POST, &selectPreset   }, 
-  { "/next",     HTTP_GET,  &nextPreset     }, 
-  { "/previous", HTTP_GET,  &lastPreset     }, 
-  { "/start",    HTTP_GET,  &startPreset    }, 
-  { "/stop",     HTTP_GET,  &stopPreset     },
+  { "/",         HTTP_GET,  &handleRoot    },
+  { "/monitor",  HTTP_GET,  &handleMonitor },
+  { "/reset",    HTTP_GET,  &handleReset   },
+  { "/on",       HTTP_GET,  &allOn         }, 
+  { "/off",      HTTP_GET,  &allOff        }, 
+  { "/write",    HTTP_POST, &setColor      }, 
+  { "/preset",   HTTP_POST, &selectPreset  }, 
+  { "/next",     HTTP_GET,  &nextPreset    }, 
+  { "/previous", HTTP_GET,  &lastPreset    }, 
+  { "/start",    HTTP_GET,  &startPreset   }, 
+  { "/stop",     HTTP_GET,  &stopPreset    },
+  { "/count",    HTTP_GET,  &getPixelCount },
   { NULL }
 };
 
@@ -99,7 +99,7 @@ static struct endpoint_table_entry endpoint_table[] =
 // the animation is enabled.
 static struct animation_table_entry animation_table[] = 
 { 
-  { 1, "Fucking Slayer", &bleed },
+  { 1, "Bleed", &bleed },
   { NULL }
 };
 
@@ -132,7 +132,7 @@ void handleRoot() {
 
 // Sets all LEDs to last saved state
 void allOn() {
-  for(uint16_t i = 0; i < strip.numPixels(); i++)
+  for(uint16_t i = 0; i < NEO_LED_COUNT; i++)
     strip.setPixelColor(i, ledStates[i]);
 
   strip.show();
@@ -156,13 +156,11 @@ void setColor() {
     JsonVariant jsonR = line.getMember("r");
     JsonVariant jsonG = line.getMember("g");
     JsonVariant jsonB = line.getMember("b");
-    //JsonVariant jsonW = line.getMember("w");
 
     int ledIndex = jsonLedIndex.as<int>();
     int r = jsonR.as<int>();
     int g = jsonG.as<int>();
     int b = jsonB.as<int>();
-    //int w = jsonW.as<int>();
   
     strip.setPixelColor(ledIndex, strip.Color(r, g, b));
   }
@@ -218,6 +216,11 @@ void stopPreset() {
   server.send(200, "text/plain", "Stop");
 }
 
+// Returns the number of pixels in the strip
+void getPixelCount() {
+  server.send(200, "text/plain", String(NEO_LED_COUNT));
+}
+
 // Returns a 404 "not found" error to the client
 void handleNotFound() {
   String message = "404 Not Found\n\n";
@@ -258,20 +261,14 @@ void handleWrongMethod() {
 /*  *  *  *  *  *  *  *  * Preset Animations *  *  *  *  *  *  *  */
 // Call the current animation handler, if it should be playing
 void playAnimation() {
-  if (animationPlaying) {
+  if (animationPlaying)
     currentPresetHandler();
-  }
 }
 
-// Slayer bleeding Christmas tree handler
+// Bleeding animation handler
 void bleed() {
-  // Length of first strip, before separation
-  static const int strip1Length = 144;
-
-  // Starting index for each strip
-  static int strip1Index = strip1Length;
-  static int strip2Index = strip1Length + 1;
-
+  static int stripIndex = 0;
+  
   // Time to wait between steps
   static const int delayMillis = 10;
   static unsigned long lastMillis;
@@ -280,23 +277,14 @@ void bleed() {
   unsigned long currentMillis = millis();
   if (currentMillis - lastMillis >= delayMillis) {
     // Update the pixel states
-    strip.setPixelColor(strip1Index, strip.Color(255, 0, 0) );
-    strip.setPixelColor((strip1Index + 1) % strip1Length, strip.Color(5, 0, 0) );
-    strip.setPixelColor((strip1Index + 40) % strip1Length, strip.Color(0, 0, 0));
-    
-    strip.setPixelColor(strip2Index, strip.Color(255, 0, 0) );
-    strip.setPixelColor(strip2Index - 1, strip.Color(5, 0, 0) );
-    strip.setPixelColor((strip2Index - 20) % NEO_LED_COUNT, strip.Color(0, 0, 0));
-    
+    strip.setPixelColor(stripIndex, strip.Color(255, 0, 0) );
+    strip.setPixelColor((stripIndex - 1) % NEO_LED_COUNT, strip.Color(5, 0, 0) );
+    strip.setPixelColor((stripIndex - 5) % NEO_LED_COUNT, strip.Color(0, 0, 0));
 
     // Update the indices
-    strip1Index--;
-    if (strip1Index < 0)
-      strip1Index = strip1Length;
-
-    strip2Index++;
-    if (strip2Index > NEO_LED_COUNT)
-      strip2Index = strip1Length + 1;
+    stripIndex++;
+    if (stripIndex >= NEO_LED_COUNT)
+      stripIndex = 0;
     
     strip.show();
     lastMillis = currentMillis;
@@ -306,13 +294,13 @@ void bleed() {
 /*  *  *  *  *  *  *  *  * Preset Animations *  *  *  *  *  *  *  */
 // Saves the current color of each LED
 void setLedStates() {
-  for(uint16_t i = 0; i < strip.numPixels(); i++)
+  for(uint16_t i = 0; i < NEO_LED_COUNT; i++)
     ledStates[i] = strip.getPixelColor(i);
 }
 
 // Turn all pixels white
 void fullWhite() {
-  for(uint16_t i=0; i<strip.numPixels(); i++)
+  for(uint16_t i=0; i < NEO_LED_COUNT; i++)
     strip.setPixelColor(i, strip.Color(255, 255, 255) );
   
   strip.show();
@@ -323,7 +311,7 @@ void clearStrip() {
   // Save current color of all LEDs
   setLedStates();
   
-  for(uint16_t i = 0; i < strip.numPixels(); i++)
+  for(uint16_t i = 0; i < NEO_LED_COUNT; i++)
     strip.setPixelColor(i, strip.Color(0, 0, 0) );
 
   strip.show(); 
@@ -355,7 +343,8 @@ void handleRequest() {
   digitalWrite(LED_BUILTIN, 0);
 }
 
-// Connect to preconfigured WiFi network, or broadcast as AP to configure a new one
+// Connect to preconfigured WiFi network, or broadcast as 
+// AP to configure a new one
 void connectWifi() {
   // Attempt connection. Blocks until successful.
   WiFi.hostname(DHCP_HOSTNAME);
