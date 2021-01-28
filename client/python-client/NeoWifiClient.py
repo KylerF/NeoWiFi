@@ -123,6 +123,14 @@ class NeoWifiStrip:
         for chunk in list(self.__chunkify(payload, self.max_request_size)):
             self.__send_post_request(url, chunk, self.timeout)
 
+    def get_animations(self):
+        """
+        Request a list of all available preset animations
+
+        :return: A dictionary containing animations ({key=id, value=name})
+        """
+        pass
+
     def start_animation(self, animation_id):
         """
         Start playing a preset animation
@@ -180,6 +188,10 @@ class NeoWifiStrip:
         # Catch 404 errors
         if "404" in response.text:
             raise EndpointNotFoundException(url)
+
+        # Catch 405 errors
+        if "405" in response.text:
+            raise EndpointWrongMethodException(url)
 
         return response
 
@@ -281,7 +293,7 @@ class RGBValueOutOfRangeException(Exception):
     """
     def __init__(self, color_value):
         self.color_value = color_value
-        self.message = "{0} -> RGB value out of range".format(self.color_value)
+        self.message = "{0} -> RGB value out of range. Accepted values are (0-255).".format(self.color_value)
 
         super().__init__(self.message)
 
@@ -299,11 +311,22 @@ class PresetAnimationNotFoundException(Exception):
 
 class EndpointNotFoundException(Exception):
     """
-    Exception raised when the server cannot be found (404)
+    Exception raised when a requested endpoint cannot be found (404)
     """
     def __init__(self, endpoint):
-        self.message = "{0} -> The endpoint does not exist. The NeoWiFi server may be running an older firmware " \
-                       "version that does not support this.".format(endpoint)
+        self.message = "{0} -> 404: The requested endpoint does not exist. The NeoWiFi server may be running an " \
+                       "older firmware version that does not support this.".format(endpoint)
+
+        super().__init__(self.message)
+
+
+class EndpointWrongMethodException(Exception):
+    """
+    Exception raised when the wrong request method was used (405)
+    """
+    def __init__(self, endpoint):
+        self.message = "{0} -> 405: The wrong request method was used for this endpoint. The NeoWiFi server may be " \
+                       "running an older firmware version that does not support this.".format(endpoint)
 
         super().__init__(self.message)
 

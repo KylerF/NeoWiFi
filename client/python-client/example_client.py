@@ -1,7 +1,7 @@
 from NeoWifiClient import NeoWifiStrip
 import random
 
-strip = NeoWifiStrip("192.168.1.107")
+strip = NeoWifiStrip("192.168.1.111")
 pixel_count = strip.get_pixel_count()
 
 strip.clear()

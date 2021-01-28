@@ -6,6 +6,17 @@
  * 
  * Configuration parameters are set in config.h
  */
+#include <Adafruit_NeoPixel.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <DNSServer.h>
+#include <ESP8266WiFi.h>
+#include <WiFiManager.h>
+#include <WiFiClient.h>
+#include <ArduinoOTA.h>
+#include <WiFiUdp.h>
+#include <ArduinoJson.h>
+
 #include "config.h"
 
 // Create a NeoPixel object
@@ -26,6 +37,8 @@ uint32_t ledStates [NEO_LED_COUNT];
 
 // Pointer to the currently playing preset animation handler function
 void (*currentPresetHandler)();
+
+WiFiManager wifiManager;
 
 ESP8266WebServer    server(SERVER_PORT);
 DynamicJsonDocument jsonBuffer(JSON_CAPACITY);
@@ -57,10 +70,19 @@ void loop() {
   server.handleClient();
   ArduinoOTA.handle();
 
+  // Check network connection
+  if ((WiFi.status() != WL_CONNECTED) || (WiFi.localIP().toString() == "0.0.0.0")) {
+    Serial.println("Lost network connection");
+
+    // Attempt to reconnect
+    connectWifi();
+  }
+
   // Update current animation if running
   playAnimation();
 }
 
+/*  *  *  *  *  *  *  *  *  *  * Web Server *  *  *  *  *  *  *  *  * */
 // Endpoint table lookup entry
 struct endpoint_table_entry {
   const char * endpoint;       // endpoint string
@@ -99,7 +121,9 @@ static struct endpoint_table_entry endpoint_table[] =
 // the animation is enabled.
 static struct animation_table_entry animation_table[] = 
 { 
-  { 1, "Bleed", &bleed },
+  { 1, "Breathe Red",   &breatheRed   },
+  { 2, "Green Pulse",   &pulseGreen   },
+  { 3, "Green Marquee", &marqueeGreen }, 
   { NULL }
 };
 
@@ -112,6 +136,7 @@ void startWebServer() {
   server.onNotFound(handleNotFound);
   server.begin();
 }
+/*  *  *  *  *  *  *  *  *  *  * Web Server *  *  *  *  *  *  *  *  * */
 
 /*  *  *  *  *  *  *  *  * API Endpoint Handlers *  *  *  *  *  *  *  */
 // TODO: Shows a serial monitor-style console
@@ -182,7 +207,7 @@ void selectPreset() {
       // Valid animation
       clearStrip();
       currentPresetHandler = p_entry -> handler;
-      animationPlaying = 1;
+      animationPlaying = presetID;
       
       server.send(
         200, 
@@ -258,40 +283,137 @@ void handleWrongMethod() {
 /*  *  *  *  *  *  *  *  * API Endpoint Handlers *  *  *  *  *  *  *  */
 
 
-/*  *  *  *  *  *  *  *  * Preset Animations *  *  *  *  *  *  *  */
+/*  *  *  *  *  *  *  *   * Preset Animations *  *  *  *  *  *  *  *  */
 // Call the current animation handler, if it should be playing
 void playAnimation() {
   if (animationPlaying)
     currentPresetHandler();
 }
 
-// Bleeding animation handler
-void bleed() {
-  static int stripIndex = 0;
+// Breathing red animation
+void breatheRed() {
+  // Brightness
+  static int intensity = 0;
+
+  // Increase or decrease brightness
+  static boolean increasing = true;
   
   // Time to wait between steps
-  static const int delayMillis = 10;
+  static const int delayMillis = 50;
   static unsigned long lastMillis;
 
   // Check the time
   unsigned long currentMillis = millis();
   if (currentMillis - lastMillis >= delayMillis) {
     // Update the pixel states
-    strip.setPixelColor(stripIndex, strip.Color(255, 0, 0) );
-    strip.setPixelColor((stripIndex - 1) % NEO_LED_COUNT, strip.Color(5, 0, 0) );
-    strip.setPixelColor((stripIndex - 5) % NEO_LED_COUNT, strip.Color(0, 0, 0));
+    for(int i = 0; i < NEO_LED_COUNT; i++)
+      strip.setPixelColor(i, strip.Color(intensity, 0, 0) );
 
-    // Update the indices
-    stripIndex++;
-    if (stripIndex >= NEO_LED_COUNT)
-      stripIndex = 0;
-    
+    // Update the brightness
+    if(intensity >= 255)
+      increasing = false;
+
+    if(intensity <= 0)
+      increasing = true;
+
+    if(increasing)
+      intensity++;
+    else
+      intensity--;
+
+
     strip.show();
     lastMillis = currentMillis;
   }
 }
 
-/*  *  *  *  *  *  *  *  * Preset Animations *  *  *  *  *  *  *  */
+// Green pulsing animation. Systems operational.
+void pulseGreen() {
+  // Brightness
+  static int intensity = 0;
+
+  // Increase or decrease brightness
+  static boolean increasing = true;
+  
+  // Time to wait between steps
+  static const int delayMillis = 2;
+  static unsigned long lastMillis;
+
+  // Check the time
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastMillis >= delayMillis) {
+    // Update the pixel states
+    for(int i = 0; i < NEO_LED_COUNT; i++)
+      strip.setPixelColor(i, strip.Color(0, intensity, 0) );
+
+    // Update the brightness
+    if(intensity >= 255)
+      increasing = false;
+
+    if(intensity <= 0)
+      increasing = true;
+
+    if(increasing)
+      intensity++;
+    else
+      intensity--;
+
+
+    strip.show();
+    lastMillis = currentMillis;
+  }
+}
+
+// Green marquee animation
+void marqueeGreen() {
+  // Brightness
+  static int index = 0;
+
+  // Width of moving section
+  static const int width = 4;
+
+  // Increase or decrease index
+  static boolean increasing = true;
+  
+  // Time to wait between steps
+  static const int delayMillis = 20;
+  static unsigned long lastMillis;
+
+  // Check the time
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastMillis >= delayMillis) {
+    // Update the pixel states
+    for(int i = index; i < width; i++)
+      strip.setPixelColor(i, strip.Color(0, 255, 0) );
+
+    // Clear trailing pixels
+    if(increasing) {
+      //for(int i = 0; i < index; i++)
+       //strip.setPixelColor(i, strip.Color(0, 0, 0) );
+    } else {
+      //for(int i = index+width+1; i <= NEO_LED_COUNT; i++)
+        //strip.setPixelColor(i, strip.Color(0, 0, 0) );
+    }
+
+    // Update the index
+    if(index >= NEO_LED_COUNT)
+      increasing = false;
+
+    if(index <= 0)
+      increasing = true;
+
+    if(increasing)
+      index++;
+    else
+      index--;
+
+
+    strip.show();
+    lastMillis = currentMillis;
+  }
+}
+/*  *  *  *  *  *  *  *   * Preset Animations *  *  *  *  *  *  *  *  */
+
 // Saves the current color of each LED
 void setLedStates() {
   for(uint16_t i = 0; i < NEO_LED_COUNT; i++)
@@ -343,13 +465,30 @@ void handleRequest() {
   digitalWrite(LED_BUILTIN, 0);
 }
 
+/*  *  *  *  *  *  *  *  *  *  * WiFi and OTA *  *  *  *  *  *  *  *  */
+
 // Connect to preconfigured WiFi network, or broadcast as 
 // AP to configure a new one
 void connectWifi() {
-  // Attempt connection. Blocks until successful.
-  WiFi.hostname(DHCP_HOSTNAME);
-  WiFiManager wifiManager;
-  wifiManager.autoConnect(DHCP_HOSTNAME);
+  // Set connect retry timeout
+  wifiManager.setConfigPortalTimeout(CONNECT_TIMEOUT);
+
+  // Set callback for configuration mode
+  wifiManager.setAPCallback(configModeCallback);
+
+  // Attempt connection to saved network. Block until successful.
+  while(!wifiManager.autoConnect(HOSTNAME)) {
+    Serial.println("Connection timed out");
+  }
+
+  Serial.println("Connected to network");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// Callback function called when entering configuration mode
+void configModeCallback (WiFiManager *wifiManager) {
+  Serial.println("Entering configuration mode");
 }
 
 // Start the OTA update server
@@ -358,38 +497,27 @@ void startOTA() {
   ArduinoOTA.setPassword(OTA_PASS);
 
   ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else { // U_SPIFFS
-      type = "filesystem";
-    }
-
-    Serial.println("Start updating " + type);
+    Serial.println("OTA start");
   });
   
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    Serial.println("\nOTA End");
   });
   
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
   });
   
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    }
+    Serial.printf("OTA Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
   });
   
   ArduinoOTA.begin();
+  Serial.println("OTA ready");
 }
+/*  *  *  *  *  *  *  *  *  *  * WiFi and OTA *  *  *  *  *  *  *  *  */
