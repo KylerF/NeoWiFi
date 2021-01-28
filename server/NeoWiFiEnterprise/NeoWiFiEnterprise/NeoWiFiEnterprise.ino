@@ -1,14 +1,18 @@
 /*
  * NeoWiFi implementation for the ESP8266/ESP32
  * 
+ * Edited version to connect to WPA2-Enterprise networks - set user
+ * id, ssid and password in config.h
+ * 
  * The API allows for setting each pixel to a RGB color over WiFi, 
- * and for running preset animations.
+ * and for running preset animations
  * 
  * Configuration parameters are set in config.h
  */
+#include "esp_wpa2.h"
+ 
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
-#include <WiFiManager.h>
 #include <WiFiClient.h>
 #include <ArduinoOTA.h>
 #include <DNSServer.h>
@@ -44,8 +48,6 @@ uint32_t ledStates [NEO_LED_COUNT];
 
 // Pointer to the currently playing preset animation handler function
 void (*currentPresetHandler)();
-
-WiFiManager wifiManager;
 
 #ifdef ARDUINO_ARCH_ESP32
 WebServer server(SERVER_PORT);
@@ -472,28 +474,40 @@ void handleRequest() {
 
 /*  *  *  *  *  *  *  *  *  *  * WiFi and OTA *  *  *  *  *  *  *  *  */
 
-// Connect to preconfigured WiFi network, or broadcast as 
-// AP to configure a new one
+// Connect to preconfigured WiFi network
 void connectWifi() {
-  // Set connect retry timeout
-  wifiManager.setConfigPortalTimeout(CONNECT_TIMEOUT);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(EAP_SSID);
+    
+  WiFi.disconnect(true);  
 
-  // Set callback for configuration mode
-  wifiManager.setAPCallback(configModeCallback);
+  WiFi.mode(WIFI_STA);
+  
+  esp_wpa2_config_t defaultConfig = WPA2_CONFIG_INIT_DEFAULT();
+  esp_wifi_sta_wpa2_ent_enable(&defaultConfig);
 
-  // Attempt connection to saved network. Block until successful.
-  while(!wifiManager.autoConnect(HOSTNAME)) {
-    Serial.println("Connection timed out");
+  // Configure enterprise connection
+  esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_USERID, strlen(EAP_USERID));
+  esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERID, strlen(EAP_USERID));
+  esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
+
+  // Connect
+  WiFi.begin(EAP_SSID);
+
+  while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
   }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 
   Serial.println("Connected to network");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-}
-
-// Callback function called when entering configuration mode
-void configModeCallback (WiFiManager *wifiManager) {
-  Serial.println("Entering configuration mode");
 }
 
 // Start the OTA update server

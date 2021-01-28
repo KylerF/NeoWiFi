@@ -2,7 +2,10 @@
 #define _CONFIG_H
 
 // WiFi settings
-const char * HOSTNAME =    "NeoWiFi";
+#define EAP_SSID     "SSID"
+#define EAP_USERID   "userid"
+#define EAP_PASSWORD "password"
+const char * HOSTNAME = "NeoWiFi";
 const int CONNECT_TIMEOUT = 60;
 
 // NeoPixel strip settings
@@ -11,7 +14,7 @@ const uint8_t NEO_PIN = 16;
 const uint8_t BRIGHTNESS = 100;
 const uint8_t NEO_LED_COUNT = 49;
 
-// Network settings
+// Web server settings
 #define SERVER_PORT 80
 
 // HTTP constants

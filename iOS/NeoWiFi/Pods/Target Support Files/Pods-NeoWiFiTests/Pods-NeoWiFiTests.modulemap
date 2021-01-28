@@ -1,0 +1,6 @@
+framework module Pods_NeoWiFiTests {
+  umbrella header "Pods-NeoWiFiTests-umbrella.h"
+
+  export *
+  module * { export * }
+}
