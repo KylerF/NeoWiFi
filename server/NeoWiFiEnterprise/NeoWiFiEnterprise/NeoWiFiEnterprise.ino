@@ -491,6 +491,10 @@ void connectWifi() {
   esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_USERID, strlen(EAP_USERID));
   esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERID, strlen(EAP_USERID));
   esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
+  
+  #ifdef USE_CERT
+  esp_wifi_sta_wpa2_ent_set_ca_cert((uint8_t *)CA_PEM, strlen(CA_PEM)+1);
+  #endif
 
   // Connect
   WiFi.begin(EAP_SSID);
